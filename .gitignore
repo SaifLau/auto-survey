@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# runtime workspace created by the skill itself
+.auto-survey/

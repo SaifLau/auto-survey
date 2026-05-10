@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "topic": "__TOPIC__",
+  "topic_slug": "__TOPIC_SLUG__",
+  "created_at": "__NOW__",
+  "updated_at": "__NOW__",
+  "status": "in_progress",
+  "phase": "init",
+  "iteration": 0,
+  "obsidian": {
+    "configured": false,
+    "vault_folder": "Research/__TOPIC_SLUG__"
+  },
+  "config": {
+    "sources": ["arxiv", "web", "local", "zotero", "obsidian"],
+    "arxiv_download": true,
+    "arxiv_max_download": 5,
+    "min_papers_before_synthesis": 10,
+    "max_papers_to_read": 30,
+    "search_recent_years": 3
+  },
+  "budget": {
+    "max_iterations": 30,
+    "deadline": null
+  },
+  "consumed": {
+    "iterations": 0,
+    "papers_read": 0
+  },
+  "abort_if": {
+    "no_progress_streak": 3
+  },
+  "no_progress_streak": 0,
+  "keywords": {
+    "queue": [],
+    "searched": []
+  },
+  "papers": [],
+  "drafts": [],
+  "open_questions": [],
+  "log": []
+}
