@@ -59,6 +59,7 @@ def init_workspace(
     arxiv_download: bool = True,
     arxiv_max_download: int = 5,
     obsidian_configured: bool = False,
+    notion_parent: str | None = None,
     force: bool = False,
     slug_override: str | None = None,
 ) -> dict:
@@ -108,6 +109,9 @@ def init_workspace(
     data["budget"]["max_iterations"] = max_iterations
     data["budget"]["deadline"] = deadline
     data["obsidian"]["configured"] = obsidian_configured
+    if notion_parent:
+        data["notion"]["configured"] = True
+        data["notion"]["parent_page_id"] = notion_parent
 
     state_mod.append_log(
         data,
@@ -136,6 +140,8 @@ def main(argv: list | None = None) -> int:
     p.add_argument("--no-arxiv-download", action="store_true")
     p.add_argument("--max-download", type=int, default=5)
     p.add_argument("--obsidian-configured", type=int, choices=[0, 1], default=0)
+    p.add_argument("--notion-parent", default=None,
+                   help="Notion parent page ID or URL — enables Notion sync")
     p.add_argument("--slug", default=None,
                    help="Override the auto-generated slug (useful for CJK-only topics)")
     p.add_argument("--force", action="store_true")
@@ -149,6 +155,7 @@ def main(argv: list | None = None) -> int:
         arxiv_download=not args.no_arxiv_download,
         arxiv_max_download=args.max_download,
         obsidian_configured=bool(args.obsidian_configured),
+        notion_parent=args.notion_parent,
         force=args.force,
         slug_override=args.slug,
     )

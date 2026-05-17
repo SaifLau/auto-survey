@@ -142,6 +142,87 @@ def render_table(state_data: dict) -> dict:
     }
 
 
+def _strip_frontmatter(md: str) -> str:
+    """Drop a leading YAML frontmatter block (--- ... ---) — Notion uses
+    database properties instead."""
+    if not md.startswith("---"):
+        return md
+    end = md.find("\n---", 3)
+    if end == -1:
+        return md
+    return md[end + 4:].lstrip("\n")
+
+
+def papers_database_schema(topic: str) -> dict:
+    """Schema for the per-topic Papers database in Notion. Property values use
+    natural-language types; the Notion MCP wrapper maps them to the real API.
+    """
+    return {
+        "name": f"Papers — {topic}",
+        "properties": {
+            "Title":     {"type": "title"},
+            "Year":      {"type": "number"},
+            "Authors":   {"type": "rich_text"},
+            "Venue":     {"type": "rich_text"},
+            "arXiv ID":  {"type": "rich_text"},
+            "URL":       {"type": "url"},
+            "Relevance": {"type": "number"},
+            "Source":    {"type": "select",
+                          "options": ["arxiv", "web", "local", "zotero", "obsidian"]},
+            "Status":    {"type": "select",
+                          "options": ["Unread", "Read", "Skimmed"]},
+            "Topic":     {"type": "rich_text"},
+            "Read At":   {"type": "date"},
+        },
+    }
+
+
+def render_note_notion(topic_slug: str, paper: dict, topic: str) -> dict:
+    """Notion-flavoured note envelope.
+
+    Returns:
+      title:            page title (used by Notion MCP)
+      properties:       dict of database row properties (natural-language values)
+      content_markdown: page body in markdown (frontmatter stripped)
+      paper_slug:       same slug as the Obsidian version (for cross-link)
+    """
+    obs = render_note(topic_slug, paper, topic)
+    body = _strip_frontmatter(obs["content"])
+    title = paper.get("title", "") or paper.get("id", "untitled")
+    properties = {
+        "Title":     title,
+        "Year":      paper.get("year"),
+        "Authors":   ", ".join(paper.get("authors", []) or []),
+        "Venue":     paper.get("venue", ""),
+        "arXiv ID":  paper.get("arxiv_id", paper.get("id", "")),
+        "URL":       paper.get("url", ""),
+        "Relevance": paper.get("relevance", 0),
+        "Source":    paper.get("source", "unknown"),
+        "Status":    "Read",
+        "Topic":     topic,
+        "Read At":   _now()[:10],
+    }
+    return {
+        "title": title,
+        "properties": properties,
+        "content_markdown": body,
+        "paper_slug": obs["paper_slug"],
+        "local_path": obs["local_path"],
+    }
+
+
+def render_survey_notion(state_data: dict, draft_body: str = "") -> dict:
+    """Notion-flavoured survey envelope: title + body markdown for a stand-alone page."""
+    obs = render_survey(state_data, draft_body)
+    body = _strip_frontmatter(obs["content"])
+    topic = state_data.get("topic", "")
+    return {
+        "title": f"Survey — {topic}",
+        "content_markdown": body,
+        "local_path": obs["local_path"],
+    }
+
+
 def render_survey(state_data: dict, draft_body: str = "") -> dict:
     raw = _read_template(SURVEY_TEMPLATE)
     topic = state_data.get("topic", "")
@@ -212,9 +293,20 @@ def main() -> int:
     s.add_argument("--topic", required=True)
     s.add_argument("--paper-json", required=True, help="path to a JSON file with paper metadata")
 
+    s = sub.add_parser("render-note-notion")
+    s.add_argument("--topic-slug", required=True)
+    s.add_argument("--topic", required=True)
+    s.add_argument("--paper-json", required=True)
+
     s = sub.add_parser("render-table")
     s = sub.add_parser("render-survey")
     s.add_argument("--draft", default=None, help="path to drafts/<latest>.md to embed")
+
+    s = sub.add_parser("render-survey-notion")
+    s.add_argument("--draft", default=None)
+
+    s = sub.add_parser("papers-db-schema")
+    s.add_argument("--topic", required=True)
 
     args = p.parse_args()
 
@@ -222,6 +314,10 @@ def main() -> int:
         with open(args.paper_json, "r", encoding="utf-8") as f:
             paper = json.load(f)
         result = render_note(args.topic_slug, paper, args.topic)
+    elif args.cmd == "render-note-notion":
+        with open(args.paper_json, "r", encoding="utf-8") as f:
+            paper = json.load(f)
+        result = render_note_notion(args.topic_slug, paper, args.topic)
     elif args.cmd == "render-table":
         result = render_table(state_mod.load())
     elif args.cmd == "render-survey":
@@ -229,13 +325,21 @@ def main() -> int:
         if args.draft:
             body = Path(args.draft).read_text(encoding="utf-8")
         result = render_survey(state_mod.load(), body)
+    elif args.cmd == "render-survey-notion":
+        body = ""
+        if args.draft:
+            body = Path(args.draft).read_text(encoding="utf-8")
+        result = render_survey_notion(state_mod.load(), body)
+    elif args.cmd == "papers-db-schema":
+        result = papers_database_schema(args.topic)
     else:
         raise SystemExit(2)
 
     # Strip "content" from the JSON envelope when it would dwarf stdout;
     # SKILL.md can re-read local_path if needed.
     envelope = {k: v for k, v in result.items() if k != "content"}
-    envelope["content_bytes"] = len(result["content"])
+    if "content" in result:
+        envelope["content_bytes"] = len(result["content"])
     print(json.dumps(envelope, ensure_ascii=False))
     return 0
 

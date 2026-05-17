@@ -1,8 +1,8 @@
 ---
 name: auto-survey
-description: "Run an autonomous, long-lived literature-survey workflow that maintains state across turns. Use when user says \"自动调研\", \"auto survey\", \"长跑调研\", \"start a survey on X\", \"resume my survey\", or wants a recoverable multi-phase research-survey loop on top of arxiv / research-lit. Outputs a Markdown survey + paper table; persists to Obsidian if MCP is configured."
+description: "Run an autonomous, long-lived literature-survey workflow that maintains state across turns. Use when user says \"自动调研\", \"auto survey\", \"长跑调研\", \"start a survey on X\", \"resume my survey\", or wants a recoverable multi-phase research-survey loop on top of arxiv / research-lit. Also covers a stateless enhancement sub-mode for existing paper notes — use when user says \"迁移笔记到 Notion\", \"把 vault 的论文搬过去\", \"补充方法解释\", \"AWQ 解释得不清楚\", \"加公式说明\", \"fix Notion paper cross-links\", \"修笔记里的链接\", or wants to upgrade existing paper notes in Notion/Obsidian. Outputs a Markdown survey + paper table; persists to Obsidian and/or Notion if MCP is configured."
 argument-hint: ["topic" | resume | status | abort]
-allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, mcp__zotero__*, mcp__obsidian-vault__*, mcp__obsidian__*, mcp__codex__codex, mcp__codex__codex-reply
+allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, mcp__zotero__*, mcp__obsidian-vault__*, mcp__obsidian__*, mcp__plugin_Notion_notion__*, mcp__codex__codex, mcp__codex__codex-reply
 ---
 
 # auto-survey: long-running literature-survey orchestrator
@@ -16,7 +16,7 @@ Designed to run identically under Claude Code and Codex CLI. The body below uses
 ## Safety Rules — READ FIRST
 
 - **NEVER** `sudo`, `rm -rf`, `rm -r`, recursive deletion, or destructive git ops.
-- **NEVER** modify files outside the current working directory's `.auto-survey/` folder, unless writing to an explicitly user-configured Obsidian vault.
+- **NEVER** modify files outside the current working directory's `.auto-survey/` folder, unless writing to an explicitly user-configured Obsidian vault or Notion parent page.
 - **NEVER** download more than `arxiv_max_download` PDFs per phase.
 - If a step *would* require any of the above, STOP and report.
 
@@ -71,6 +71,7 @@ Also extract `— flag: value` overrides (same style as `research-lit`):
 | `— deadline: ISO8601` | sets `budget.deadline` |
 | `— sources: a,b,c` | restrict to subset of `arxiv,web,local,zotero,obsidian` |
 | `— no_download` | sets `config.arxiv_download = false` |
+| `— notion_parent: <URL_or_ID>` | enables Notion sync under that parent page |
 
 ## Step 1 — Load or initialise state
 
@@ -81,7 +82,8 @@ else
   # init mode (only allowed when first token is a topic, not resume/status/abort)
   python3 "$SKILL_DIR/scripts/init.py" "TOPIC" \
     --max-papers $MAX_PAPERS --max-iterations $MAX_ITERS \
-    --obsidian-configured $OBSIDIAN_AVAILABLE
+    --obsidian-configured $OBSIDIAN_AVAILABLE \
+    ${NOTION_PARENT:+--notion-parent "$NOTION_PARENT"}
 fi
 ```
 
@@ -91,6 +93,8 @@ fi
 - If `status == "in_progress"` AND `updated_at` older than 24h: warn but continue (the user may have abandoned it).
 
 **Obsidian detection**: try one Obsidian MCP call (`mcp__obsidian-vault__*` or `mcp__obsidian__*`). If it succeeds, set `state.obsidian.configured = true` and remember the vault folder `Research/<topic_slug>/`. If it fails, fall back to local `.auto-survey/notes/`.
+
+**Notion detection**: only enabled if the user passed `— notion_parent: <URL_or_ID>` (already stored at init time in `state.notion.parent_page_id`). If set AND a Notion MCP tool is available (`mcp__plugin_Notion_notion__*`), keep `state.notion.configured = true`. If the user later wants to add Notion to an existing survey, edit `state.notion.parent_page_id` manually and re-`resume`. The Papers database (`state.notion.papers_database_id`) and Survey page (`state.notion.survey_page_id`) are created lazily on first write, not here.
 
 ## Step 2 — Check budget
 
@@ -184,9 +188,27 @@ Pop ONE paper at a time (highest relevance first). Don't read more than ~2 paper
    python3 "$SKILL_DIR/scripts/obsidian_io.py" render-note \
      --topic-slug "<state.topic_slug>" --topic "<state.topic>" --paper-json /tmp/p.json
    ```
-   This writes `<.auto-survey>/notes/<paper-slug>.md`. Read its content (or grab `content_bytes` envelope) and:
-   - **If Obsidian MCP available**: call the vault's "create file" tool with path `Research/<topic_slug>/<paper-slug>.md` and the rendered markdown.
-   - Else: keep the local copy.
+   This writes `<.auto-survey>/notes/<paper-slug>.md`. Then dispatch to whichever vault(s) are configured — both can fire in the same turn:
+
+   - **Obsidian** (if `state.obsidian.configured`): call the vault's "create file" tool with path `Research/<topic_slug>/<paper-slug>.md` and the rendered markdown.
+   - **Notion** (if `state.notion.configured`):
+     1. **Lazy-create Papers database** on first paper. If `state.notion.papers_database_id` is null:
+        ```bash
+        python3 "$SKILL_DIR/scripts/obsidian_io.py" papers-db-schema --topic "<state.topic>"
+        ```
+        Use the JSON output (name + properties schema) and call `mcp__plugin_Notion_notion__notion-create-database` with `parent_page_id = state.notion.parent_page_id`. Save the returned database ID into `state.notion.papers_database_id`. Log it.
+     2. **Render the Notion envelope**:
+        ```bash
+        python3 "$SKILL_DIR/scripts/obsidian_io.py" render-note-notion \
+          --topic-slug "<state.topic_slug>" --topic "<state.topic>" --paper-json /tmp/p.json
+        ```
+        The JSON output has `{title, properties, content_markdown, paper_slug}`.
+     3. **Add a row** to the Papers database via `mcp__plugin_Notion_notion__notion-create-pages`:
+        - `parent` = `state.notion.papers_database_id` (database parent → row)
+        - `properties` = envelope's `properties` (natural-language values, the MCP wrapper maps types)
+        - `content` / `children` = envelope's `content_markdown` (MCP accepts markdown body)
+        Save the returned page ID into `papers[i].notion_page_id`.
+   - **Fallback**: if neither vault is configured, the local `.auto-survey/notes/<paper-slug>.md` is the only copy.
 
 5. Update state: mark `papers[i].read = true`, `papers[i].note_path = "..."`, fill `method_oneliner`, `key_result`. Use the same Python heredoc pattern as keyword_expansion.
 
@@ -227,12 +249,22 @@ Decide:
      --draft .auto-survey/drafts/<latest>.md
    python3 "$SKILL_DIR/scripts/obsidian_io.py" render-table
    ```
-2. **Sync to Obsidian** (if configured): write both `_survey.md` and `_papers.md` into `Research/<topic_slug>/` via the Obsidian MCP. For each paper note, ensure it's in the vault (already done in `read_and_note`).
-3. Set status=completed:
+2. **Sync to Obsidian** (if `state.obsidian.configured`): write both `_survey.md` and `_papers.md` into `Research/<topic_slug>/` via the Obsidian MCP. For each paper note, ensure it's in the vault (already done in `read_and_note`).
+3. **Sync to Notion** (if `state.notion.configured`): create the Survey page under the parent.
+   ```bash
+   python3 "$SKILL_DIR/scripts/obsidian_io.py" render-survey-notion \
+     --draft .auto-survey/drafts/<latest>.md
+   ```
+   The JSON output has `{title, content_markdown}`. Call `mcp__plugin_Notion_notion__notion-create-pages`:
+   - `parent` = `state.notion.parent_page_id`
+   - `title` = envelope's `title`
+   - `content` / `children` = envelope's `content_markdown`
+   Save the returned page ID into `state.notion.survey_page_id`. (Paper rows are already in the database from `read_and_note`.)
+4. Set status=completed:
    ```bash
    python3 "$SKILL_DIR/scripts/state.py" set-status completed
    ```
-4. Print a one-paragraph summary to the user. Done.
+5. Print a one-paragraph summary to the user. Done.
 
 ## Step 4 — Increment iteration
 
@@ -285,6 +317,39 @@ If `$ARGUMENTS` started with `abort`:
 python3 "$SKILL_DIR/scripts/state.py" set-status aborted
 ```
 Print confirmation and return.
+
+## Sub-mode: Enhance Existing Paper Notes
+
+Sometimes the task isn't running a new survey — it's improving paper notes that already live in Obsidian or Notion. Examples:
+
+- Migrating vault notes into an existing Notion paper database (e.g. `端侧大模型推理加速`).
+- Filling in method explanations that name a method (AWQ, GPTQ, KIVI...) but never show the math.
+- Converting `「Page Title」` text references into real Notion `<mention-page>` links so cross-paper navigation works.
+- Syncing an upgraded Notion page back to its source vault `.md` file.
+
+This sub-mode runs **stateless** — no `.auto-survey/state.json`, no phase machine, no wake-up loop. One turn = one well-scoped batch of edits.
+
+### When to switch into this sub-mode
+
+Trigger phrases include "迁移笔记到 Notion", "把 vault 的论文搬过去", "补充方法解释", "笔记里方法不清楚", "AWQ 解释得不清楚", "加公式说明", "fix Notion paper cross-links", "修笔记里的链接", or any request to upgrade existing paper notes rather than start a new survey.
+
+### Required reading before acting
+
+Read [`references/note_enhancement.md`](references/note_enhancement.md) **before** issuing any Notion MCP call. It encodes patterns learned from real failures:
+
+- **Concurrency limits** — paper notes routinely render to >1MB; the Notion MCP request budget is 32MB per turn. Past sessions crashed at 5 parallel `notion-fetch`. Hard caps: 3 parallel `notion-fetch`, 5 parallel `update_content` (only for small targeted patches), 3 parallel `notion-create-pages`. When "Request too large" fires, halve concurrency rather than retry.
+- **The four-part formula rule** for method explanations (what / variables / why / cost), with worked examples for AWQ, GPTQ, KIVI, KVzip, SmoothQuant.
+- **Obsidian → Notion content transforms** (`[[wikilink]] → 「text」 → <mention-page url=.../>`, local file paths, image handling).
+- **Search-first, fetch-narrow** patterns to avoid reading large files (`ls`, `wc -l`, `grep -n "^## "`, `Read --offset/--limit`).
+
+### Quick reminders that hold across all enhancement work
+
+- Never read a full vault `.md` file upfront. Size it first; read targeted sections.
+- Never fetch ≥5 Notion pages in parallel. Default to 3, drop to 1 when in doubt.
+- Never rewrite a whole Notion page when only a paragraph changes — use `update_content` in search-and-replace mode.
+- Never migrate a note without first checking the destination database schema via `notion-fetch` on the data source (returns property types, multi-select options, status enums).
+- Never leave a method named without a formula if the method is central to the paper's claim — that's the failure mode this sub-mode exists to fix.
+- If you upgrade a Notion page (added formulas, fixed links), sync the upgrade back to the source vault `.md` so the two stay aligned.
 
 ## Recovery
 

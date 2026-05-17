@@ -11,6 +11,12 @@
     "configured": false,
     "vault_folder": "Research/__TOPIC_SLUG__"
   },
+  "notion": {
+    "configured": false,
+    "parent_page_id": null,
+    "papers_database_id": null,
+    "survey_page_id": null
+  },
   "config": {
     "sources": ["arxiv", "web", "local", "zotero", "obsidian"],
     "arxiv_download": true,
