@@ -116,3 +116,10 @@ The state-machine + stale-state-guard pattern is inspired by the `auto-review-lo
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Incremental edge-inference briefs
+
+Independent arXiv / GitHub Releases / JSON collection, persistent deduplication,
+source checkpoints, update events, and Markdown outbox. Existing survey mode is
+unchanged. See [usage and limits](references/incremental.md). No scheduler or
+notification delivery is installed. Requires Python 3.9+ for this mode.
