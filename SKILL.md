@@ -1,6 +1,6 @@
 ---
 name: auto-survey
-description: "Run an autonomous, long-lived literature-survey workflow that maintains state across turns. Use when user says \"自动调研\", \"auto survey\", \"长跑调研\", \"start a survey on X\", \"resume my survey\", or wants a recoverable multi-phase research-survey loop on top of arxiv / research-lit. Also covers a stateless enhancement sub-mode for existing paper notes — use when user says \"迁移笔记到 Notion\", \"把 vault 的论文搬过去\", \"补充方法解释\", \"AWQ 解释得不清楚\", \"加公式说明\", \"fix Notion paper cross-links\", \"修笔记里的链接\", or wants to upgrade existing paper notes in Notion/Obsidian. Outputs a Markdown survey + paper table; persists to Obsidian and/or Notion if MCP is configured."
+description: "Run an autonomous, long-lived literature-survey workflow that maintains state across turns. Use when user says \"自动调研\", \"auto survey\", \"长跑调研\", \"start a survey on X\", \"resume my survey\", or wants a recoverable multi-phase research-survey loop on top of arxiv / research-lit. Also covers a stateless enhancement sub-mode for existing paper notes — use when user says \"迁移笔记到 Notion\", \"把 vault 的论文搬过去\", \"补充方法解释\", \"AWQ 解释得不清楚\", \"加公式说明\", \"fix Notion paper cross-links\", \"修笔记里的链接\", or wants to upgrade existing paper notes in Notion/Obsidian. Also supports independent incremental edge-inference scans and deduplicated Markdown briefs. Outputs a Markdown survey + paper table; persists to Obsidian and/or Notion if MCP is configured."
 argument-hint: ["topic" | resume | status | abort]
 allowed-tools: Bash(*), Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, mcp__zotero__*, mcp__obsidian-vault__*, mcp__obsidian__*, mcp__plugin_Notion_notion__*, mcp__codex__codex, mcp__codex__codex-reply
 ---
@@ -50,6 +50,14 @@ for p in [
 ```
 
 Use `$SKILL_DIR/scripts/<name>.py` in subsequent commands.
+
+## Independent incremental brief mode
+
+For ongoing edge-inference tracking, `incremental scan`, `incremental brief`, or
+`incremental status`, read [references/incremental.md](references/incremental.md)
+and dispatch to `scripts/incremental.py` **before** the survey phase machine.
+Keep its workspace separate; completed survey state does not block this mode.
+Do not apply survey budgets, done guards, or wake-up behavior to incremental scans.
 
 ## Step 0 — Parse $ARGUMENTS
 

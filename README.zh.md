@@ -116,3 +116,10 @@ git clone https://github.com/SaifLau/auto-survey.git ~/.codex/skills/auto-survey
 ## 协议
 
 MIT — 见 [LICENSE](LICENSE)。
+
+## 端侧推理增量简报
+
+新增独立的 arXiv、GitHub Releases 和 JSON 采集入口，支持跨次去重、来源检查点、
+首次发现与后续更新、Markdown 简报及状态恢复。原综述模式保持兼容。
+详见[使用方法与边界](references/incremental.md)。本模式需要 Python 3.9+；
+未安装定时触发器或通知发送器。
